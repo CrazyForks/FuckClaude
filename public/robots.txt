@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://claude-cn-detector.pages.dev/sitemap-index.xml
