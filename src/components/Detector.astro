@@ -73,8 +73,6 @@ const home = lang === 'zh' ? '/zh/' : '/';
     </div>
   </section>
 
-  <CnModels lang={lang} />
-
   <section id="scan-sec" aria-labelledby="scan-title">
     <div class="section-head">
       <h2 id="scan-title">{t('signals.title')}</h2>
@@ -114,6 +112,8 @@ const home = lang === 'zh' ? '/zh/' : '/';
       <p>{t('how.p2')}</p>
     </div>
   </section>
+
+  <CnModels lang={lang} />
 
   <section id="faq-sec" aria-labelledby="faq-title">
     <div class="section-head">

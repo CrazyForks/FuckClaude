@@ -61,7 +61,7 @@ weights sum to **100**, so the total score is the sum of contributions. Bands: L
 src/
 ├── config/signals.ts    # signal definitions, weights, detectors, icons
 ├── config/sponsors.ts   # sponsor list (logo, link, EN/ZH taglines)
-├── config/cn-models.ts  # domestic-model picks (DeepSeek / GLM / Kimi side rails)
+├── config/cn-models.ts  # domestic-model picks (DeepSeek / GLM / Kimi name-only links)
 ├── i18n/ui.ts           # EN/ZH copy dictionary + translator
 ├── scripts/detect.ts    # animated scan + scoring + verdict (client)
 ├── scripts/track.ts     # GA click tracking for outbound promo links
@@ -70,7 +70,6 @@ src/
 └── pages/               # index.astro (en) + zh/index.astro
 public/mascot/           # cartoon CEO state images (doze / search / low / medium / high)
 public/sponsors/         # sponsor logos
-public/cn-models/        # domestic-model mascot images (DeepSeek / GLM / Kimi)
 scripts/
 └── gen-assets.mjs       # regenerates favicon / PWA icons / og.png (node scripts/gen-assets.mjs)
 ```
@@ -159,7 +158,7 @@ Claude Code 标记为中国用户。点击后会有逐项检测的扫描动效,�
 src/
 ├── config/signals.ts    # 信号定义、权重、检测函数、图标
 ├── config/sponsors.ts   # 赞助商列表(logo、链接、中英文案)
-├── config/cn-models.ts  # 国产模型推荐(DeepSeek / GLM / Kimi 两侧栏)
+├── config/cn-models.ts  # 国产模型推荐(DeepSeek / GLM / Kimi 纯文字链接)
 ├── i18n/ui.ts           # 中英文案字典 + 取值 helper
 ├── scripts/detect.ts    # 扫描动效 + 打分 + 结论(客户端)
 ├── scripts/track.ts     # 出站推广链接的 GA 点击埋点
@@ -168,7 +167,6 @@ src/
 └── pages/               # index.astro(英)+ zh/index.astro(中)
 public/mascot/           # 卡通 CEO 各状态图(打瞌睡 / 检测中 / 低 / 中 / 高风险)
 public/sponsors/         # 赞助商 logo
-public/cn-models/        # 国产模型卡通形象(DeepSeek / GLM / Kimi)
 scripts/
 └── gen-assets.mjs       # 重新生成 favicon / PWA 图标 / og.png(node scripts/gen-assets.mjs)
 ```
