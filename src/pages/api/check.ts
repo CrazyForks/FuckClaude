@@ -14,8 +14,10 @@
  * pure scorers as the client so results stay consistent.
  *
  * Response format:
- *   - curl / wget / httpie (or `?format=text`)  → pretty plain-text report
- *   - `Accept: application/json` (or `?format=json`) → JSON
+ *   - default (curl, browser, …)                      → pretty plain-text report
+ *       · terminals get ANSI colour, browsers get plain text (`?color=0/1` forces)
+ *   - `Accept: application/json` (or `?format=json`)  → JSON
+ *   - `?format=text` forces the report even for JSON clients
  *   - `?lang=zh` / `?lang=en` (default: Accept-Language) → localised output
  *
  * Needs the Vercel adapter + on-demand rendering; geo headers are only present
@@ -103,14 +105,30 @@ function pickLang(url: URL, acceptLang: string[]): Lang {
   return (acceptLang[0] || '').toLowerCase().startsWith('zh') ? 'zh' : 'en';
 }
 
-function wantsText(url: URL, req: Request): boolean {
+/**
+ * The human-readable report is the default. JSON is opt-in so a bare
+ * `curl`/browser hit never dumps raw JSON — only clients that explicitly ask
+ * for it (`?format=json`, or `Accept: application/json` from fetch/XHR) get it.
+ */
+function wantsJson(url: URL, req: Request): boolean {
   const fmt = (url.searchParams.get('format') || '').toLowerCase();
-  if (fmt === 'text' || fmt === 'txt') return true;
-  if (fmt === 'json') return false;
+  if (fmt === 'json') return true;
+  if (fmt === 'text' || fmt === 'txt') return false;
+  return (req.headers.get('accept') || '').toLowerCase().includes('application/json');
+}
+
+/**
+ * ANSI colour only for terminal clients — a browser hitting the URL would show
+ * raw escape codes, so it gets plain text. `?color=0` / `?color=1` force it.
+ */
+function wantsColor(url: URL, req: Request): boolean {
+  const q = (url.searchParams.get('color') || '').toLowerCase();
+  if (url.searchParams.has('no-color') || ['0', 'false', 'no', 'off'].includes(q)) return false;
+  if (['1', 'true', 'yes', 'on', 'force'].includes(q)) return true;
   const accept = (req.headers.get('accept') || '').toLowerCase();
-  if (accept.includes('application/json')) return false;
+  if (accept.includes('text/html')) return false;
   const ua = (req.headers.get('user-agent') || '').toLowerCase();
-  return /curl|wget|httpie|python-requests|libcurl|go-http-client|powershell/.test(ua);
+  return !/mozilla|chrome\/|safari\/|firefox\/|edg\//.test(ua);
 }
 
 function analyze(req: Request, lang: Lang): Analysis {
@@ -196,90 +214,109 @@ function jsonBody(a: Analysis, lang: Lang) {
   };
 }
 
-function textBody(a: Analysis, lang: Lang): string {
+function textBody(a: Analysis, lang: Lang, color: boolean): string {
   const t = useTranslations(lang);
+
+  // Minimal ANSI painter — a no-op when colour is disabled (browsers/pipes).
+  const paint = (open: string) => (s: string) => (color ? `\x1b[${open}m${s}\x1b[0m` : s);
+  const accent = paint('38;5;173'); // Claude's warm orange (#d7875f)
+  const dim = paint('38;5;245'); // muted grey
+  const bold = paint('1');
+  const bandColor = { low: paint('38;5;71'), medium: paint('38;5;178'), high: paint('38;5;167') }[
+    a.band
+  ];
+
   const L =
     lang === 'zh'
       ? {
-          title: 'Fuck Claude — 你是「Claude 中国用户」吗?',
-          tagline: '基于你的 IP 归属地 + 请求头的服务端估算。',
-          score: '得分',
-          verdict: '结论',
-          measured: '可检测信号(服务端可见):',
-          browserOnly: '无法通过 curl 检测(仅浏览器):',
-          coverage: '覆盖率',
-          coverageBody: `${a.measuredWeight}/${a.totalWeight} 权重可在服务端检测。`,
+          subtitle: '「Claude 中国用户」检测',
+          tagline: '基于 IP 归属地 + 请求头的服务端估算',
+          score: '风险分',
+          measured: '服务端可见信号',
+          browserOnly: '仅浏览器可测(curl 看不到)',
+          coverage: '覆盖',
           geo: '归属地',
-          note: '说明',
-          noteBody: 'IP/请求头估算,与浏览器端读取系统的检测结果可能不同。',
-          full: '完整浏览器检测',
-          hintJson: 'JSON:追加 ?format=json',
-          hintLang: '语言:自动跟随 Accept-Language 请求头',
+          noteBody: 'IP/请求头估算,与浏览器端系统检测结果可能不同。',
+          full: '完整检测',
+          hintJson: 'JSON      → 加 ?format=json',
+          hintLang: '语言      → 自动跟随 Accept-Language',
           none: '无',
         }
       : {
-          title: 'Fuck Claude — Are you a Claude "China user"?',
-          tagline: 'Server-side estimate from your IP geo + request headers.',
+          subtitle: 'Claude "China user" check',
+          tagline: 'Server-side estimate from IP geo + request headers',
           score: 'Score',
-          verdict: 'Verdict',
-          measured: 'Measured signals (server-visible):',
-          browserOnly: "Can't be measured over curl (browser-only):",
+          measured: 'Signals visible server-side',
+          browserOnly: 'Browser-only (invisible to curl)',
           coverage: 'Coverage',
-          coverageBody: `${a.measuredWeight}/${a.totalWeight} weight measurable server-side.`,
           geo: 'Geo',
-          note: 'Note',
           noteBody: 'IP/header estimate; differs from the in-browser OS scan.',
-          full: 'Full in-browser check',
-          hintJson: 'JSON     → append ?format=json',
-          hintLang: 'Language → follows your Accept-Language header',
+          full: 'Full scan',
+          hintJson: 'JSON      → add ?format=json',
+          hintLang: 'Language  → follows Accept-Language',
           none: 'none',
         };
 
   const home = lang === 'zh' ? `${SITE}/zh/` : `${SITE}/`;
-  const browserOnly = a.signals
-    .filter((s) => !s.measured)
-    .map((s) => `${s.name} (${s.weight})`);
   const geoStr = [a.geo.country, a.geo.timezone].filter(Boolean).join(' · ') || L.none;
+  const browserOnly =
+    a.signals
+      .filter((s) => !s.measured)
+      .map((s) => s.name)
+      .join(' · ') || L.none;
+  const measured = a.signals
+    .filter((s) => s.measured)
+    .sort((x, y) => y.contribution - x.contribution);
 
-  const lines: string[] = [];
-  lines.push(L.title);
-  lines.push(L.tagline);
-  lines.push('');
-  lines.push(`  ${L.score}: ${a.score} / 100  [${a.band.toUpperCase()}]`);
-  lines.push(`  ${L.verdict}: ${t(`band.${a.band}.title`)} — ${t(`band.${a.band}.desc`)}`);
-  lines.push('');
-  lines.push(`  ${L.measured}`);
-  for (const s of a.signals) {
-    if (!s.measured) continue;
-    const sign = s.contribution > 0 ? `+${s.contribution}` : `${s.contribution}`;
-    lines.push(`    ${s.name} — ${s.value} → ${sign}`);
+  const bar = accent('│');
+  const rule = (corner: string) => accent(corner + '─'.repeat(52));
+  const badge = bandColor('●');
+
+  const out: string[] = [];
+  out.push(rule('╭'));
+  out.push(`${bar}  ${accent(bold('Fuck Claude'))}  ${dim(L.subtitle)}`);
+  out.push(`${bar}  ${dim(L.tagline)}`);
+  out.push(bar);
+  out.push(
+    `${bar}  ${L.score}  ${bandColor(bold(`${a.score}/100`))}   ${badge} ${bandColor(
+      t(`band.${a.band}.title`).toUpperCase(),
+    )}`,
+  );
+  out.push(`${bar}  ${t(`band.${a.band}.desc`)}`);
+  out.push(bar);
+  out.push(`${bar}  ${dim(L.measured)}`);
+  for (const s of measured) {
+    const c = (s.contribution > 0 ? `+${s.contribution}` : `${s.contribution}`).padStart(4);
+    const mark = s.contribution > 0 ? badge : dim('·');
+    out.push(`${bar}    ${mark} ${dim(c)}  ${s.name}${s.value ? dim(` · ${s.value}`) : ''}`);
   }
-  lines.push('');
-  lines.push(`  ${L.browserOnly}`);
-  lines.push(`    ${browserOnly.join(' · ') || L.none}`);
-  lines.push('');
-  lines.push(`  ${L.coverage}: ${L.coverageBody}`);
-  lines.push(`  ${L.geo}: ${geoStr}`);
-  lines.push(`  ${L.note}: ${L.noteBody}`);
-  lines.push('');
-  lines.push(`  ${L.full} → ${home}`);
-  lines.push(`  ${L.hintJson}`);
-  lines.push(`  ${L.hintLang}`);
-  lines.push('');
-  return lines.join('\n');
+  out.push(bar);
+  out.push(`${bar}  ${dim(L.browserOnly)}`);
+  out.push(`${bar}    ${dim(browserOnly)}`);
+  out.push(bar);
+  out.push(`${bar}  ${dim(`${L.coverage} ${a.measuredWeight}/${a.totalWeight}  ·  ${L.geo} ${geoStr}`)}`);
+  out.push(`${bar}  ${dim(L.noteBody)}`);
+  out.push(rule('╰'));
+  out.push(`   ${accent('→')}  ${L.full}  ${accent(home)}`);
+  out.push(`   ${dim(L.hintJson)}`);
+  out.push(`   ${dim(L.hintLang)}`);
+  out.push('');
+  return out.join('\n');
 }
 
 export const GET: APIRoute = ({ request, url }) => {
   const acceptLang = parseAcceptLanguage(request.headers.get('accept-language') || '');
   const lang = pickLang(url, acceptLang);
   const analysis = analyze(request, lang);
+  const vary = 'Accept, Accept-Language, User-Agent';
 
-  if (wantsText(url, request)) {
-    return new Response(textBody(analysis, lang), {
+  if (!wantsJson(url, request)) {
+    return new Response(textBody(analysis, lang, wantsColor(url, request)), {
       status: 200,
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-store',
+        Vary: vary,
         ...CORS,
       },
     });
@@ -290,6 +327,7 @@ export const GET: APIRoute = ({ request, url }) => {
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
+      Vary: vary,
       ...CORS,
     },
   });
